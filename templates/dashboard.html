@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Expense Tracker{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Welcome back!</h1>
+      <p class="muted">Here's where your money went.</p>
+    </div>
+    <a href="{{ url_for('add_expense') }}" class="btn btn-primary">+ Add Expense</a>
+  </header>
+
+  <section class="card total-card">
+    <span class="muted">Total Spending</span>
+    <h2 class="total-amount">₹{{ "%.2f"|format(total) }}</h2>
+  </section>
+
+  <!-- ===== Phase 3: Analytics (always overall / current-month, never affected by search or filters below) ===== -->
+
+  <section class="analytics-grid">
+    <div class="stat-card">
+      <span class="muted">This Month</span>
+      <strong>₹{{ "%.2f"|format(month_comparison.current_total) }}</strong>
+    </div>
+    <div class="stat-card">
+      <span class="muted">Total Expenses</span>
+      <strong>{{ overall_stats.count }}</strong>
+    </div>
+    <div class="stat-card">
+      <span class="muted">Average Expense</span>
+      <strong>{% if overall_stats.count %}₹{{ "%.2f"|format(overall_stats.average) }}{% else %}No data{% endif %}</strong>
+    </div>
+    <div class="stat-card">
+      <span class="muted">Highest Expense</span>
+      {% if overall_stats.highest_expense %}
+        <strong>₹{{ "%.2f"|format(overall_stats.highest_expense.amount) }}</strong>
+        <span class="muted small">{{ overall_stats.highest_expense.category }}</span>
+      {% else %}
+        <strong>No data</strong>
+      {% endif %}
+    </div>
+    <div class="stat-card">
+      <span class="muted">Top Category</span>
+      {% if overall_stats.highest_category %}
+        <strong>{{ categories.get(overall_stats.highest_category, "🏷️") }} {{ overall_stats.highest_category }}</strong>
+        <span class="muted small">₹{{ "%.2f"|format(overall_stats.highest_category_amount) }}</span>
+      {% else %}
+        <strong>No data</strong>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="card">
+      <h3>Spending by Category</h3>
+      {% if category_labels %}
+        <div class="chart-wrap"><canvas id="categoryChart"></canvas></div>
+      {% else %}
+        <p class="muted">No data yet — add an expense to see this chart.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h3>Daily Spending — {{ current_month_label }}</h3>
+      <div class="chart-wrap"><canvas id="dailyChart"></canvas></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h3>Monthly Spending (last {{ monthly_labels|length }} months)</h3>
+    <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+  </section>
+
+  <section class="card">
+    <h3>This Month vs Last Month</h3>
+    <div class="comparison-row">
+      <div>
+        <span class="muted">{{ month_comparison.current_label }}</span>
+        <strong>₹{{ "%.2f"|format(month_comparison.current_total) }}</strong>
+      </div>
+      <div>
+        <span class="muted">{{ month_comparison.previous_label }}</span>
+        <strong>₹{{ "%.2f"|format(month_comparison.previous_total) }}</strong>
+      </div>
+      <div>
+        <span class="muted">Difference</span>
+        <strong>{{ "+" if month_comparison.difference >= 0 else "" }}₹{{ "%.2f"|format(month_comparison.difference) }}</strong>
+      </div>
+      <div>
+        <span class="muted">Change</span>
+        <strong>
+          {% if month_comparison.percent_change is none %}
+            N/A
+          {% else %}
+            {{ "+" if month_comparison.percent_change >= 0 else "" }}{{ month_comparison.percent_change }}%
+          {% endif %}
+        </strong>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== End Phase 3 analytics ===== -->
+
+  <div class="grid-2">
+
+    <section class="card">
+      <h3>Category Breakdown</h3>
+      {% if breakdown %}
+        <div class="breakdown-list">
+          {% for name, info in breakdown.items() %}
+            <div class="breakdown-row">
+              <div class="breakdown-label">
+                <span>{{ categories.get(name, "🏷️") }} {{ name }}</span>
+                <span>₹{{ "%.2f"|format(info.amount) }}</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill" style="width: {{ info.percent }}%;"></div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No expenses yet. Add your first one!</p>
+      {% endif %}
+
+      <form action="{{ url_for('add_category') }}" method="POST" class="inline-form">
+        <input type="text" name="category_name" placeholder="New category name" required>
+        <button type="submit" class="btn btn-secondary">Add Category</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h3>Recent Expenses</h3>
+      {% if recent %}
+        <ul class="recent-list">
+          {% for e in recent %}
+            <li>
+              <span>{{ categories.get(e.category, "🏷️") }} {{ e.category }}{% if e.description %} — {{ e.description }}{% endif %}</span>
+              <span class="amount">₹{{ "%.2f"|format(e.amount) }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">Nothing recent yet.</p>
+      {% endif %}
+    </section>
+
+  </div>
+
+  <section class="card">
+    <div class="list-header">
+      <h3>All Expenses</h3>
+    </div>
+
+    <form method="GET" class="filter-bar">
+      <input
+        type="text" name="search" placeholder="Search description or category..."
+        value="{{ search }}"
+      >
+
+      <select name="category" onchange="this.form.submit()">
+        <option value="">All Categories</option>
+        {% for name, icon in categories.items() %}
+          <option value="{{ name }}" {% if category_filter == name %}selected{% endif %}>{{ icon }} {{ name }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="month" onchange="this.form.submit()">
+        <option value="">All Months</option>
+        {% for value, label in available_months %}
+          <option value="{{ value }}" {% if month_filter == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="sort" onchange="this.form.submit()">
+        <option value="date_new" {% if sort_by == 'date_new' %}selected{% endif %}>Date (newest)</option>
+        <option value="date_old" {% if sort_by == 'date_old' %}selected{% endif %}>Date (oldest)</option>
+        <option value="amount_high" {% if sort_by == 'amount_high' %}selected{% endif %}>Amount (high to low)</option>
+        <option value="amount_low" {% if sort_by == 'amount_low' %}selected{% endif %}>Amount (low to high)</option>
+        <option value="category" {% if sort_by == 'category' %}selected{% endif %}>Category (A-Z)</option>
+      </select>
+
+      <button type="submit" class="btn btn-secondary">Search</button>
+      {% if is_filtered %}
+        <a href="{{ url_for('dashboard') }}" class="btn btn-small">Clear</a>
+      {% endif %}
+    </form>
+
+    {% if expenses %}
+      <div class="table-wrap">
+        <table class="expense-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Amount</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in expenses %}
+              <tr>
+                <td>{{ e.date }}</td>
+                <td>{{ categories.get(e.category, "🏷️") }} {{ e.category }}</td>
+                <td>{{ e.description or "—" }}</td>
+                <td>₹{{ "%.2f"|format(e.amount) }}</td>
+                <td class="row-actions">
+                  <a href="{{ url_for('edit_expense', expense_id=e.id) }}" class="btn btn-small">Edit</a>
+                  <form action="{{ url_for('delete_expense', expense_id=e.id) }}" method="POST" class="delete-form">
+                    <button type="submit" class="btn btn-small btn-danger">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% elif is_filtered %}
+      <p class="muted">No expenses found. Try adjusting your search or filters.</p>
+    {% else %}
+      <p class="muted">No expenses recorded yet.</p>
+    {% endif %}
+  </section>
+
+  <details class="danger-zone">
+    <summary>Developer options</summary>
+    <form action="{{ url_for('reset_all') }}" method="POST" class="reset-form">
+      <button type="submit" class="btn btn-danger">Reset All Data</button>
+    </form>
+  </details>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Dark-theme-matching palette, cycled if there are more categories than colors.
+  const CHART_COLORS = ["#6c8cff", "#4ade80", "#ffb020", "#ff6b6b", "#a78bfa", "#2dd4bf", "#f472b6", "#fbbf24"];
+  const GRID_COLOR = "#2a2f3a";
+  const TEXT_COLOR = "#9aa1ac";
+
+  Chart.defaults.color = TEXT_COLOR;
+  Chart.defaults.borderColor = GRID_COLOR;
+
+  // --- Category doughnut chart ---
+  const categoryCanvas = document.getElementById("categoryChart");
+  if (categoryCanvas) {
+    const categoryLabels = {{ category_labels | tojson }};
+    const categoryValues = {{ category_values | tojson }};
+    new Chart(categoryCanvas, {
+      type: "doughnut",
+      data: {
+        labels: categoryLabels,
+        datasets: [{
+          data: categoryValues,
+          backgroundColor: categoryLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+          borderColor: "#161922",
+          borderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom", labels: { boxWidth: 12, padding: 12 } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.label}: ₹${ctx.parsed.toFixed(2)}`,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // --- Daily spending chart (current month) ---
+  const dailyCanvas = document.getElementById("dailyChart");
+  if (dailyCanvas) {
+    new Chart(dailyCanvas, {
+      type: "bar",
+      data: {
+        labels: {{ daily_labels | tojson }},
+        datasets: [{
+          label: "Spent (₹)",
+          data: {{ daily_values | tojson }},
+          backgroundColor: "#6c8cff",
+          borderRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: "Day of month" }, grid: { display: false } },
+          y: { title: { display: true, text: "Amount (₹)" }, beginAtZero: true, grid: { color: GRID_COLOR } },
+        },
+      },
+    });
+  }
+
+  // --- Monthly spending chart (last 6 months) ---
+  const monthlyCanvas = document.getElementById("monthlyChart");
+  if (monthlyCanvas) {
+    new Chart(monthlyCanvas, {
+      type: "bar",
+      data: {
+        labels: {{ monthly_labels | tojson }},
+        datasets: [{
+          label: "Spent (₹)",
+          data: {{ monthly_values | tojson }},
+          backgroundColor: "#4ade80",
+          borderRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { title: { display: true, text: "Month" }, grid: { display: false } },
+          y: { title: { display: true, text: "Amount (₹)" }, beginAtZero: true, grid: { color: GRID_COLOR } },
+        },
+      },
+    });
+  }
+</script>
+{% endblock %}

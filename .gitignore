@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+instance/
+expense_tracker.db
+expense-trackerV2.0/
+expense-trackerV2.1/
+expense-trackerV2.2/
